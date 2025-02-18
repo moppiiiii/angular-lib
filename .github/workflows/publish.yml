@@ -1,0 +1,116 @@
+name: Publish to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Select release type'
+        required: true
+        type: choice
+        default: 'patch'
+        options:
+          - major
+          - minor
+          - patch
+          - premajor
+          - prerelease
+      prerelease_id:
+        description: 'Select prerelease id (used only if release_type is prerelease)'
+        required: false
+        type: choice
+        default: 'alpha'
+        options:
+          - alpha
+          - beta
+          - rc
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # publish のための権限を設定
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+
+    steps:
+      # ブランチが release/ で始まることを確認し、release/ 以外の場合はエラーを出す
+      - name: Verify release branch
+        if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+        run: |
+          echo "This workflow can only be run on release branches."
+          exit 1
+
+      # リポジトリをチェックアウト
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Git のユーザー名 & メールアドレスを設定
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Node.js のバージョンを設定
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ./.node-version
+          scope: '@yokogawaelectric'
+          registry-url: 'https://npm.pkg.github.com'
+
+      # 依存関係をインストール
+      - name: Install dependencies
+        run: npm ci
+
+      # ビルド
+      - name: Run Build
+        run: npm run build
+
+      # release branch 用にバージョンを更新
+      - name: Bump version for release branch
+        id: bump_version
+        run: |
+          if [ "${{ inputs.release_type }}" = "premajor" ] || [ "${{ inputs.release_type }}" = "prerelease" ]; then
+            NEW_VERSION=$(npm version ${{ inputs.release_type }} --preid "${{ inputs.prerelease_id }}" -m "chore: Bump version to %s")
+          else
+            NEW_VERSION=$(npm version ${{ inputs.release_type }} -m "chore: Bump version to %s")
+          fi
+
+          echo "NEW_VERSION=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      # コミットとタグをプッシュ
+      - name: Push commit and tags
+        run: git push --follow-tags
+
+      # GitHub Packages に公開
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # major の場合のみ、main 同期用でバージョン更新を実施
+      - name: Bump version to main
+        if: ${{ inputs.release_type == 'major' }}
+        run: |
+          git switch main
+          git pull origin main:main
+          NEW_VERSION=$(npm version --no-git-tag-version "${{ inputs.release_type }}")
+          git log -1
+        shell: bash
+
+      # major の場合のみ、Pull Request を作成
+      - name: Create Pull Request to main
+        if: ${{ inputs.release_type == 'major' }}
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/version-bump-${{ steps.bump_version.outputs.NEW_VERSION }}
+          title: "chore: Bump version to ${{ steps.bump_version.outputs.NEW_VERSION }}"
+          commit-message: "chore: Bump version to ${{ steps.bump_version.outputs.NEW_VERSION }}"
+          base: main
+          body: "Automatically bump version to ${{ steps.bump_version.outputs.NEW_VERSION }}"
+          sign-commits: true
