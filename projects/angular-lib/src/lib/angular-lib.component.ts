@@ -1,15 +1,14 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'lib-angular-lib',
-  standalone: true,
-  imports: [],
-  template: `
+    selector: 'lib-angular-lib',
+    imports: [],
+    template: `
     <p>
       angular-lib works!
     </p>
   `,
-  styles: ``
+    styles: ``
 })
 export class AngularLibComponent {
 
