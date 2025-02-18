@@ -59,7 +59,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: ./.node-version
-          scope: '@yokogawaelectric'
+          scope: '@moppiiiii'
           registry-url: 'https://npm.pkg.github.com'
 
       # 依存関係をインストール
